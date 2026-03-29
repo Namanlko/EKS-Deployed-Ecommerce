@@ -59,7 +59,9 @@ shopsphere/
 │   ├── docker/              # Docker configuration
 │   │   ├── Dockerfile.backend
 │   │   ├── Dockerfile.frontend
+│   │   ├── Dockerfile.frontend.k8s
 │   │   ├── nginx.conf
+│   │   ├── nginx.k8s.conf
 │   │   └── docker-compose.yml
 │   ├── kubernetes/          # Kubernetes manifests
 │       ├── 01-namespace.yaml
@@ -98,8 +100,8 @@ shopsphere/
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/shopsphere.git
-cd shopsphere
+git clone https://github.com/Namanlko/EKS-Deployed-Ecommerce.git
+cd EKS-Deployed-Ecommerce
 
 # Install backend dependencies
 cd backend
@@ -131,18 +133,18 @@ curl http://localhost:5000/api/products/seed
 
 ```bash
 # Run all services with Docker Compose
-docker-compose -f deployment/docker/docker-compose.yml up
+docker compose -f deployment/docker/docker-compose.yml up
 
 # Access the application
-# Frontend: http://localhost:3000
-# Backend API: http://localhost:5000
-# MongoDB: mongodb://localhost:27017
+# Frontend: http://<EC2-PUBLIC-IP>:3000
+# Backend API: http://<EC2-PUBLIC-IP>:5000
+# MongoDB: mongodb://<EC2-PUBLIC-IP>:27017
 
 # Seed products
-curl http://localhost:3000/api/products/seed
+curl http://<EC2-PUBLIC-IP>:3000/api/products/seed
 
 # Stop all services
-docker-compose -f deployment/docker/docker-compose.yml down
+docker compose -f deployment/docker/docker-compose.yml down
 ```
 
 ### Option 3: AWS EKS (Production)
@@ -209,8 +211,8 @@ docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/shopsphere-bac
 
 #### Step 5: Build and Push Frontend Image
 ```bash
-# Build frontend image
-docker build -t shopsphere-frontend:latest -f deployment/docker/Dockerfile.frontend .
+# Build frontend image (use Dockerfile.frontend.k8s for EKS/Kubernetes)
+docker build -t shopsphere-frontend:latest -f deployment/docker/Dockerfile.frontend.k8s .
 
 # Tag frontend image
 docker tag shopsphere-frontend:latest ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/shopsphere-frontend:latest
@@ -435,39 +437,6 @@ curl http://$ALB_URL/api/health
 
 **Total: ~45-50 minutes**
 
-### 🔌 API Endpoints
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| POST | `/api/auth/register` | ❌ | Register new user |
-| POST | `/api/auth/login` | ❌ | Login user |
-| GET | `/api/auth/me` | ✅ | Get user profile |
-| GET | `/api/products` | ❌ | Get all products |
-| GET | `/api/products/featured` | ❌ | Get featured products |
-| GET | `/api/products/categories` | ❌ | Get product categories |
-| GET | `/api/products/:id` | ❌ | Get single product |
-| POST | `/api/products/:id/reviews` | ✅ | Add product review |
-| GET | `/api/products/seed` | ❌ | Seed sample products |
-| POST | `/api/orders` | ✅ | Create order |
-| GET | `/api/orders/my` | ✅ | Get user orders |
-| GET | `/api/orders/:id` | ✅ | Get order details |
-| GET | `/api/health` | ❌ | Health check |
-
-### 🔧 Environment Variables
-
-#### Backend (backend/.env)
-```env
-MONGO_URI=mongodb://localhost:27017/shopsphere
-JWT_SECRET=your_jwt_secret_key_here
-PORT=5000
-NODE_ENV=development
-```
-
-#### Frontend (frontend/.env)
-```env
-REACT_APP_API_URL=http://localhost:5000/api
-```
-
 ### 📊 Monitoring & Logs
 
 #### Local/Docker
@@ -504,52 +473,12 @@ kubectl get hpa -n shopsphere
 kubectl port-forward -n shopsphere service/backend-service 5000:5000
 ```
 
-### 🔍 Troubleshooting
-
-#### Common Issues
-
-#### 1. MongoDB Connection Failed
-```bash
-# Check if MongoDB is running
-docker ps | grep mongodb
-kubectl get pods -n shopsphere | grep mongodb
-
-# Check MongoDB logs
-docker logs shopsphere-mongodb
-kubectl logs -n shopsphere deployment/mongodb
-```
-
-#### 2. CORS Errors
-- Backend CORS is configured to allow localhost and EC2 IP
-- For production, update the origin list in `backend/server.js`
-
-#### 3. Images Not Pulling in EKS
-```bash
-# Check pod status
-kubectl describe pod -n shopsphere <pod-name>
-
-# Check image pull secrets
-kubectl get secrets -n shopsphere
-
-# Verify ECR access
-aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.us-east-2.amazonaws.com
-```
-
-#### 4. ALB Not Creating
-```bash
-# Check ingress status
-kubectl describe ingress shopsphere-ingress -n shopsphere
-
-# Check ALB controller logs
-kubectl logs -n kube-system deployment/aws-load-balancer-controller
-```
-
 ### 🧹 Cleanup
 
 #### Docker Compose Cleanup
 ```bash
 # Stop and remove containers
-docker-compose -f deployment/docker/docker-compose.yml down -v
+docker compose -f deployment/docker/docker-compose.yml down -v
 
 # Remove volumes (optional)
 docker volume prune
@@ -559,6 +488,12 @@ docker volume prune
 ```bash
 # Delete application
 kubectl delete namespace shopsphere
+
+# Delete EBS volumes (created by PersistentVolumeClaims for MongoDB)
+aws ec2 describe-volumes \
+    --filters "Name=tag:kubernetes.io/cluster/shopsphere-cluster,Values=owned" \
+    --query "Volumes[*].VolumeId" --output text | \
+    tr '\t' '\n' | xargs -I {} aws ec2 delete-volume --volume-id {}
 
 # Delete EKS cluster
 eksctl delete cluster --name shopsphere-cluster --region us-east-2

@@ -9,6 +9,12 @@ services:
       - mongodb_data:/data/db
     networks:
       - shopsphere-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s   # MongoDB ko initialize hone do
 
   backend:
     build:
@@ -24,7 +30,8 @@ services:
       - NODE_ENV=production
       - PORT=5000
     depends_on:
-      - mongodb
+      mongodb:
+        condition: service_healthy   # ← Yeh key change hai
     networks:
       - shopsphere-network
 
